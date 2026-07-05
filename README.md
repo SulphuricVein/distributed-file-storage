@@ -1,13 +1,16 @@
 # Distributed File Storage
 
-Dropbox-lite built with Java 17, gRPC, and Docker.
+I built this to understand distributed file storage instead of just reading about it.
 
-## What it does
+You upload a file. It gets split into chunks, copied to more than one node, and rebuilt on another node if one goes down.
 
-- Splits uploads into 1 MiB chunks.
-- Stores every chunk on two storage nodes by default.
-- Checks nodes every five seconds. If one dies, the coordinator copies its surviving chunks to another live node.
-- Streams the chunks back in order on download.
+## What is working
+
+- Uploads are split into 1 MiB chunks.
+- Each chunk is stored on two nodes by default.
+- The coordinator checks nodes every five seconds.
+- If one node dies, it copies the surviving chunk to another live node.
+- Downloads put the chunks back in the right order.
 
 ## Architecture
 
@@ -17,9 +20,9 @@ File client -> Coordinator -> Storage node 1
                          -> Storage node 3   (recovery target)
 ```
 
-The coordinator owns chunk-to-node metadata. Nodes only store chunk bytes.
+The coordinator knows where every chunk is. Storage nodes only hold the chunk data.
 
-`src/main/proto/distributed_storage.proto` is the API source of truth. Its generated Java/gRPC files are committed so a fresh clone builds without requiring a local Protocol Buffers compiler.
+The gRPC API starts at `src/main/proto/distributed_storage.proto`.
 
 ## Run locally
 
@@ -29,7 +32,7 @@ Build first:
 mvn test package
 ```
 
-Use four terminals in this folder:
+Open four terminals in this folder:
 
 ```powershell
 java -cp target/distributed-file-storage-0.1.0.jar com.example.distributedstorage.node.StorageNodeMain --port 50061
@@ -46,7 +49,7 @@ java -jar target/distributed-file-storage-0.1.0.jar list
 java -jar target/distributed-file-storage-0.1.0.jar download README-copy.md .\downloaded-readme.md
 ```
 
-Kill one storage-node process after upload. The coordinator should log recovery onto the unused node. The download still works as long as one replica survives.
+Try killing one storage node after uploading a file. The coordinator should rebuild that copy on the unused node. Download still works as long as one copy survives.
 
 ## Run with Docker
 
@@ -54,8 +57,8 @@ Kill one storage-node process after upload. The coordinator should log recovery 
 docker compose up --build
 ```
 
-Docker is required only for this path. The Java/Maven path above works without it.
+You only need Docker for this path. The Java/Maven setup above works without it.
 
-## Honest limits
+## What is missing
 
-This is an MVP, not Dropbox. The metadata catalog is in memory, so a coordinator restart forgets existing files. It also has no login system, encryption, checksum validation, persistent metadata database, or leader election. Those are the next real steps—not fake resume fluff.
+This is not Dropbox. The metadata is in memory, so restarting the coordinator forgets where files are. There is also no login, encryption, checksum validation, permanent metadata database, or leader election yet.
