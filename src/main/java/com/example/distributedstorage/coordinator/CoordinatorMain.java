@@ -8,6 +8,7 @@ import io.grpc.ServerBuilder;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -30,7 +31,8 @@ public final class CoordinatorMain {
             throw new IllegalArgumentException("Provide at least one node and a replica count between 1 and node count");
         }
 
-        MetadataCatalog catalog = new MetadataCatalog();
+        Path metadataFile = Path.of(options.getOrDefault("metadata-file", "data/catalog.tsv"));
+        MetadataCatalog catalog = new MetadataCatalog(metadataFile);
         ScheduledExecutorService recoveryExecutor = Executors.newSingleThreadScheduledExecutor();
         recoveryExecutor.scheduleWithFixedDelay(new RecoveryService(nodes, replicas, catalog), recoverySeconds, recoverySeconds, TimeUnit.SECONDS);
 
@@ -42,8 +44,7 @@ public final class CoordinatorMain {
             recoveryExecutor.shutdownNow();
             server.shutdown();
         }));
-        System.out.printf("Coordinator listening on %d; replicas=%d; nodes=%s%n", port, replicas, nodes);
+        System.out.printf("Coordinator listening on %d; replicas=%d; nodes=%s; metadata=%s%n", port, replicas, nodes, metadataFile.toAbsolutePath());
         server.awaitTermination();
     }
 }
-

@@ -1,9 +1,11 @@
 services:
   coordinator:
     build: .
-    command: ["com.example.distributedstorage.coordinator.CoordinatorMain", "--port", "50051", "--nodes", "node-1:50061,node-2:50062,node-3:50063", "--replicas", "2"]
+    command: ["com.example.distributedstorage.coordinator.CoordinatorMain", "--port", "50051", "--nodes", "node-1:50061,node-2:50062,node-3:50063", "--replicas", "2", "--metadata-file", "/data/catalog.tsv"]
     ports:
       - "50051:50051"
+    volumes:
+      - coordinator-data:/data
     depends_on:
       - node-1
       - node-2
@@ -28,7 +30,7 @@ services:
       - node-3-data:/data
 
 volumes:
+  coordinator-data:
   node-1-data:
   node-2-data:
   node-3-data:
-

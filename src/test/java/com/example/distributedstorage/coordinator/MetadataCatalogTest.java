@@ -2,12 +2,17 @@ package com.example.distributedstorage.coordinator;
 
 import com.example.distributedstorage.common.NodeAddress;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.util.List;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class MetadataCatalogTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void keepsChunksInIndexOrderAndReplacesReplicaLocations() {
         MetadataCatalog catalog = new MetadataCatalog();
@@ -22,5 +27,24 @@ class MetadataCatalogTest {
         assertEquals(List.of(0, 2), chunks.stream().map(ChunkLocation::chunkIndex).toList());
         assertEquals(List.of(second), chunks.get(1).replicas());
         assertEquals(List.of("report.pdf"), catalog.fileNames());
+    }
+
+    @Test
+    void reloadsSavedMetadataFromDisk() {
+        Path snapshot = tempDir.resolve("catalog.tsv");
+        NodeAddress first = new NodeAddress("node-1", 50061);
+        NodeAddress second = new NodeAddress("node-2", 50062);
+
+        MetadataCatalog original = new MetadataCatalog(snapshot);
+        original.put("docs/report.pdf", 1, List.of(first));
+        original.put("docs/report.pdf", 0, List.of(first, second));
+        original.put("notes.txt", 0, List.of(second));
+
+        MetadataCatalog reloaded = new MetadataCatalog(snapshot);
+
+        assertEquals(List.of("docs/report.pdf", "notes.txt"), reloaded.fileNames());
+        assertEquals(List.of(0, 1), reloaded.chunks("docs/report.pdf").stream().map(ChunkLocation::chunkIndex).toList());
+        assertEquals(List.of(first, second), reloaded.chunks("docs/report.pdf").get(0).replicas());
+        assertEquals(List.of(second), reloaded.chunks("notes.txt").get(0).replicas());
     }
 }
