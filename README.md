@@ -8,6 +8,7 @@ You upload a file. It gets split into chunks, copied to more than one node, and 
 
 - Uploads are split into 1 MiB chunks.
 - Each chunk is stored on two nodes by default.
+- Uploads also save a SHA-256 checksum, and downloads verify it.
 - The coordinator keeps chunk metadata on disk, so a restart does not wipe the file list.
 - The coordinator checks nodes every five seconds.
 - If one node dies, it copies the surviving chunk to another live node.
@@ -62,4 +63,4 @@ You only need Docker for this path. The Java/Maven setup above works without it.
 
 ## What is missing
 
-This is still a small MVP. The metadata now survives restart, but it is just one local snapshot file, not a real distributed metadata system. There is also no login, encryption, checksum validation, permanent database, or leader election yet.
+This is still a small MVP. The metadata now survives restart, but it is just one local snapshot file, not a real distributed metadata system. There is also no login, encryption at rest or in transit, permanent database, or leader election yet.

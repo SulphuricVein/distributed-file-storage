@@ -1,5 +1,6 @@
 package com.example.distributedstorage.coordinator;
 
+import com.example.distributedstorage.common.ChecksumFiles;
 import com.example.distributedstorage.common.NodeAddress;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,5 +47,17 @@ class MetadataCatalogTest {
         assertEquals(List.of(0, 1), reloaded.chunks("docs/report.pdf").stream().map(ChunkLocation::chunkIndex).toList());
         assertEquals(List.of(first, second), reloaded.chunks("docs/report.pdf").get(0).replicas());
         assertEquals(List.of(second), reloaded.chunks("notes.txt").get(0).replicas());
+    }
+
+    @Test
+    void hidesInternalChecksumFilesFromNormalListings() {
+        MetadataCatalog catalog = new MetadataCatalog();
+        NodeAddress node = new NodeAddress("node-1", 50061);
+
+        catalog.put("report.pdf", 0, List.of(node));
+        catalog.put(ChecksumFiles.forFile("report.pdf"), 0, List.of(node));
+
+        assertEquals(List.of("report.pdf"), catalog.fileNames());
+        assertEquals(1, catalog.chunks(ChecksumFiles.forFile("report.pdf")).size());
     }
 }

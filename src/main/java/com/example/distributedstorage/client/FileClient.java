@@ -1,5 +1,6 @@
 package com.example.distributedstorage.client;
 
+import com.example.distributedstorage.common.ChecksumFiles;
 import com.example.distributedstorage.common.NodeAddress;
 import com.example.distributedstorage.proto.Chunk;
 import com.example.distributedstorage.proto.CoordinatorGrpc;
@@ -7,12 +8,18 @@ import com.example.distributedstorage.proto.DownloadRequest;
 import com.example.distributedstorage.proto.ListFilesRequest;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.Iterator;
 
 public final class FileClient {
@@ -55,6 +62,7 @@ public final class FileClient {
         Path source = Path.of(args[1]);
         String remoteName = args[2];
         int chunkIndex = 0;
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream input = Files.newInputStream(source)) {
             byte[] buffer = new byte[CHUNK_SIZE_BYTES];
             int bytesRead;
@@ -64,6 +72,7 @@ public final class FileClient {
                     break;
                 }
                 byte[] chunkData = java.util.Arrays.copyOf(buffer, bytesRead);
+                digest.update(chunkData);
                 var response = coordinator.storeChunk(Chunk.newBuilder()
                         .setFileName(remoteName)
                         .setChunkIndex(chunkIndex++)
@@ -80,6 +89,7 @@ public final class FileClient {
                 throw new IllegalStateException("Upload stopped: " + response.getMessage());
             }
         }
+        storeChecksum(coordinator, remoteName, hex(digest.digest()));
         System.out.printf("Uploaded %s in %d chunk(s)%n", source, Math.max(chunkIndex, 1));
     }
 
@@ -95,12 +105,26 @@ public final class FileClient {
         }
         Path temporary = destination.resolveSibling(destination.getFileName() + ".part");
         Iterator<Chunk> chunks = coordinator.downloadFile(DownloadRequest.newBuilder().setFileName(args[1]).build());
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (OutputStream output = Files.newOutputStream(temporary)) {
             while (chunks.hasNext()) {
-                output.write(chunks.next().getData().toByteArray());
+                byte[] data = chunks.next().getData().toByteArray();
+                digest.update(data);
+                output.write(data);
             }
+            String expectedChecksum = readChecksum(coordinator, args[1]);
+            if (expectedChecksum != null && !expectedChecksum.equals(hex(digest.digest()))) {
+                throw new IllegalStateException("Download failed: checksum mismatch for " + args[1]);
+            }
+        } catch (Exception exception) {
+            Files.deleteIfExists(temporary);
+            throw exception;
         }
-        Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+        }
         System.out.println("Downloaded to " + destination.toAbsolutePath());
     }
 
@@ -108,8 +132,44 @@ public final class FileClient {
         coordinator.listFiles(ListFilesRequest.getDefaultInstance()).getFileNamesList().forEach(System.out::println);
     }
 
+    private static void storeChecksum(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String remoteName, String checksum) {
+        var response = coordinator.storeChunk(Chunk.newBuilder()
+                .setFileName(ChecksumFiles.forFile(remoteName))
+                .setChunkIndex(0)
+                .setData(com.google.protobuf.ByteString.copyFrom(checksum, StandardCharsets.UTF_8))
+                .build());
+        if (!response.getSuccess()) {
+            throw new IllegalStateException("Upload stopped: " + response.getMessage());
+        }
+    }
+
+    private static String readChecksum(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String remoteName) {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            Iterator<Chunk> chunks = coordinator.downloadFile(DownloadRequest.newBuilder().setFileName(ChecksumFiles.forFile(remoteName)).build());
+            while (chunks.hasNext()) {
+                output.write(chunks.next().getData().toByteArray());
+            }
+            return output.toString(StandardCharsets.UTF_8);
+        } catch (StatusRuntimeException exception) {
+            if (exception.getStatus().getCode() == Status.Code.NOT_FOUND) {
+                return null;
+            }
+            throw exception;
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Could not read checksum for " + remoteName, exception);
+        }
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) {
+            builder.append(String.format("%02x", value));
+        }
+        return builder.toString();
+    }
+
     private static void usage() {
         System.out.println("Usage:\n  upload <local-file> <remote-name> [coordinator-host:port]\n  download <remote-name> <local-file> [coordinator-host:port]\n  list [coordinator-host:port]");
     }
 }
-

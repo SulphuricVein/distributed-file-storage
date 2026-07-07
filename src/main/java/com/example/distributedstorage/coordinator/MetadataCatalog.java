@@ -1,5 +1,6 @@
 package com.example.distributedstorage.coordinator;
 
+import com.example.distributedstorage.common.ChecksumFiles;
 import com.example.distributedstorage.common.NodeAddress;
 
 import java.io.IOException;
@@ -53,7 +54,10 @@ public final class MetadataCatalog {
     }
 
     public List<String> fileNames() {
-        return files.keySet().stream().sorted().toList();
+        return files.keySet().stream()
+                .filter(fileName -> !ChecksumFiles.isChecksumFile(fileName))
+                .sorted()
+                .toList();
     }
 
     private void loadFromDisk() {
