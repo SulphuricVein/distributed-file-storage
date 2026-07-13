@@ -1,6 +1,7 @@
 package com.example.distributedstorage.client;
 
 import com.example.distributedstorage.common.ChecksumFiles;
+import com.example.distributedstorage.common.ChecksumUtil;
 import com.example.distributedstorage.common.NodeAddress;
 import com.example.distributedstorage.proto.Chunk;
 import com.example.distributedstorage.proto.CoordinatorGrpc;
@@ -35,7 +36,8 @@ public final class FileClient {
         }
         String command = args[0];
         String endpoint = switch (command) {
-            case "upload", "download" -> args.length == 4 ? args[3] : "localhost:50051";
+            case "upload", "download", "verify" -> args.length == 4 ? args[3] : "localhost:50051";
+            case "checksum" -> args.length == 3 ? args[2] : "localhost:50051";
             case "list" -> args.length == 2 ? args[1] : "localhost:50051";
             default -> "localhost:50051";
         };
@@ -46,6 +48,8 @@ public final class FileClient {
             switch (command) {
                 case "upload" -> upload(coordinator, args);
                 case "download" -> download(coordinator, args);
+                case "verify" -> verify(coordinator, args);
+                case "checksum" -> checksum(coordinator, args);
                 case "list" -> list(coordinator);
                 default -> usage();
             }
@@ -62,7 +66,7 @@ public final class FileClient {
         Path source = Path.of(args[1]);
         String remoteName = args[2];
         int chunkIndex = 0;
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        MessageDigest digest = ChecksumUtil.newSha256();
         try (InputStream input = Files.newInputStream(source)) {
             byte[] buffer = new byte[CHUNK_SIZE_BYTES];
             int bytesRead;
@@ -89,7 +93,7 @@ public final class FileClient {
                 throw new IllegalStateException("Upload stopped: " + response.getMessage());
             }
         }
-        storeChecksum(coordinator, remoteName, hex(digest.digest()));
+        storeChecksum(coordinator, remoteName, ChecksumUtil.hex(digest.digest()));
         System.out.printf("Uploaded %s in %d chunk(s)%n", source, Math.max(chunkIndex, 1));
     }
 
@@ -105,7 +109,7 @@ public final class FileClient {
         }
         Path temporary = destination.resolveSibling(destination.getFileName() + ".part");
         Iterator<Chunk> chunks = coordinator.downloadFile(DownloadRequest.newBuilder().setFileName(args[1]).build());
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        MessageDigest digest = ChecksumUtil.newSha256();
         try (OutputStream output = Files.newOutputStream(temporary)) {
             while (chunks.hasNext()) {
                 byte[] data = chunks.next().getData().toByteArray();
@@ -113,7 +117,7 @@ public final class FileClient {
                 output.write(data);
             }
             String expectedChecksum = readChecksum(coordinator, args[1]);
-            if (expectedChecksum != null && !expectedChecksum.equals(hex(digest.digest()))) {
+            if (expectedChecksum != null && !expectedChecksum.equals(ChecksumUtil.hex(digest.digest()))) {
                 throw new IllegalStateException("Download failed: checksum mismatch for " + args[1]);
             }
         } catch (Exception exception) {
@@ -130,6 +134,27 @@ public final class FileClient {
 
     private static void list(CoordinatorGrpc.CoordinatorBlockingStub coordinator) {
         coordinator.listFiles(ListFilesRequest.getDefaultInstance()).getFileNamesList().forEach(System.out::println);
+    }
+
+    private static void verify(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String[] args) throws Exception {
+        if (args.length < 3 || args.length > 4) {
+            usage();
+            return;
+        }
+        String expectedChecksum = requireChecksum(coordinator, args[1]);
+        String localChecksum = ChecksumUtil.sha256Hex(Path.of(args[2]));
+        if (!expectedChecksum.equals(localChecksum)) {
+            throw new IllegalStateException("Verify failed: local file does not match remote checksum");
+        }
+        System.out.println("Checksum OK");
+    }
+
+    private static void checksum(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String[] args) {
+        if (args.length < 2 || args.length > 3) {
+            usage();
+            return;
+        }
+        System.out.println(requireChecksum(coordinator, args[1]));
     }
 
     private static void storeChecksum(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String remoteName, String checksum) {
@@ -161,15 +186,15 @@ public final class FileClient {
         }
     }
 
-    private static String hex(byte[] bytes) {
-        StringBuilder builder = new StringBuilder(bytes.length * 2);
-        for (byte value : bytes) {
-            builder.append(String.format("%02x", value));
+    private static String requireChecksum(CoordinatorGrpc.CoordinatorBlockingStub coordinator, String remoteName) {
+        String checksum = readChecksum(coordinator, remoteName);
+        if (checksum == null || checksum.isBlank()) {
+            throw new IllegalStateException("No checksum stored for " + remoteName);
         }
-        return builder.toString();
+        return checksum;
     }
 
     private static void usage() {
-        System.out.println("Usage:\n  upload <local-file> <remote-name> [coordinator-host:port]\n  download <remote-name> <local-file> [coordinator-host:port]\n  list [coordinator-host:port]");
+        System.out.println("Usage:\n  upload <local-file> <remote-name> [coordinator-host:port]\n  download <remote-name> <local-file> [coordinator-host:port]\n  verify <remote-name> <local-file> [coordinator-host:port]\n  checksum <remote-name> [coordinator-host:port]\n  list [coordinator-host:port]");
     }
 }

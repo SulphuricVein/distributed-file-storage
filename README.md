@@ -9,6 +9,7 @@ You upload a file. It gets split into chunks, copied to more than one node, and 
 - Uploads are split into 1 MiB chunks.
 - Each chunk is stored on two nodes by default.
 - Uploads also save a SHA-256 checksum, and downloads verify it.
+- You can also ask for the remote checksum or verify a local file against it.
 - The coordinator keeps chunk metadata on disk, so a restart does not wipe the file list.
 - The coordinator checks nodes every five seconds.
 - If one node dies, it copies the surviving chunk to another live node.
@@ -43,12 +44,14 @@ java -cp target/distributed-file-storage-0.1.0.jar com.example.distributedstorag
 java -cp target/distributed-file-storage-0.1.0.jar com.example.distributedstorage.coordinator.CoordinatorMain --port 50051 --nodes localhost:50061,localhost:50062,localhost:50063 --replicas 2 --metadata-file .\data\catalog.tsv
 ```
 
-Upload, list, and download:
+Upload, list, download, and verify:
 
 ```powershell
 java -jar target/distributed-file-storage-0.1.0.jar upload .\README.md README-copy.md
 java -jar target/distributed-file-storage-0.1.0.jar list
 java -jar target/distributed-file-storage-0.1.0.jar download README-copy.md .\downloaded-readme.md
+java -jar target/distributed-file-storage-0.1.0.jar checksum README-copy.md
+java -jar target/distributed-file-storage-0.1.0.jar verify README-copy.md .\downloaded-readme.md
 ```
 
 Try killing one storage node after uploading a file. The coordinator should rebuild that copy on the unused node. Restarting the coordinator should still keep the file list because the metadata snapshot lives in `data/catalog.tsv`.
